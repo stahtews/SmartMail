@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<!--
+IoT app for the SmartMailBox that uses the AWS Lambda API.
+-->
+<html>
+
+<head>
+	<meta charset="utf-8" />
+	<meta name="format-detection" content="telephone=no" />
+	<meta name="viewport" content="width=device-width, user-scalable=no
+		initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0" />
+
+	<title>SmartMailBox Data Collection App</title>
+	
+	<style>
+	@import 'ui/css/evothings-app.css';
+	</style>
+
+	<script>
+	// Redirect console.log to Evothings Workbench.
+	if (window.hyper && window.hyper.log) { console.log = hyper.log }
+	</script>
+</head>
+
+<body>
+	<header>
+		<button class="back" onclick="history.back()">
+			<img src="ui/images/arrow-left.svg" />
+		</button>
+		<!--<img class="logotype" src="ui/images/logo.svg" alt="Evothings" />-->
+		<img class="logotype" src="ui/images/Title.png" alt="Evothings" />
+	</header>
+
+	<h1>Configure SensorTag</h1>
+
+
+    <form>
+		Email:
+		<input type="email" id="phoneNumber" value="stahtews@gmail.com"  style="border:1px solid #ff0000" />
+		
+    </form>
+	<button class="red wide" onclick="connectToSensorTag()">
+		Start reading SensorTag
+	</button>
+	<button class="stone wide" onclick="disconnectFromSensorTag()">
+		Stop reading SensorTag
+	</button>
+
+	<p><strong>Status:</strong> <span id="status">Click the activate button on the SensorTag and tap the Start button to begin</span></p>
+
+	<!--<p><strong>Instructions:</strong></p>
+
+	<p>This app demonstrates how to upload data from a Texas Instruments Bluetooth Smart SensorTag to the Amazon AWS Lambda service.</p>
+	<p>Edit the source code of file aws-config.js to use your AWS credentials. See the README file for further information.</p>
+	<p>When ready to go, activate the SensorTag and press the Start button to connect and start uploading sensor data.</p>
+	<p>To monitor temperature data, run the example app 'aws-app-read.html' on another phone.</p>-->
+
+	<script src="cordova.js"></script>
+	<script src="libs/evothings/evothings.js"></script>
+	<script src="libs/evothings/tisensortag/tisensortag.js"></script>
+    <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1.32.min.js"></script>
+    <script src="aws-lib.js"></script>
+    <script src="aws-config.js"></script>
+
+	<script>
+	// SensorTag object
+	var sensortag
+
+	// Update interval is once each minute. You can make
+	// this value smaller to get more frequent updates.
+	//var temperatureInterval = 1000 // Change to 5000 for 5 second intervals.
+	var accelerometerInterval = 1000
+
+	// Timer for temperature upload.
+	//var temperatureTimer = null
+	var accelerometerTimer = null
+
+	// Variable that holds last known temperature reading.
+	var lastTemperatureReading = '0.0'
+	var lastAccelerometerReadingx = '0.0'
+	var lastAccelerometerReadingz = '0.0'
+
+	/****************************
+	** Initialize the application
+	**
+	*****************************/
+	function initialise()
+	{
+		initialiseSensorTag()
+		initializeAWS()
+	}
+
+	function initializeAWS()
+	{
+		evothings.aws.initialize(evothings.aws.config)
+	}
+
+
+	function initialiseSensorTag()
+	{	// Create SensorTag CC2650 instance.
+		sensortag = evothings.tisensortag.createInstance(
+			evothings.tisensortag.CC2650_BLUETOOTH_SMART)
+
+		// Uncomment to use SensorTag CC2541.
+		//sensortag = evothings.tisensortag.createInstance(
+		//	evothings.tisensortag.CC2541_BLUETOOTH_SMART)
+
+		// Setting the temperature interval does not work
+		// as expected, using an interval timer instead as
+		// a workaround. See function onTemperatureTimer.
+
+		//it contains callback function , hence when the sensor sends data, it will directly go to call back function temperatureHandler
+		/*sensortag
+			.statusCallback(statusHandler)
+			.errorCallback(errorHandler)
+			.temperatureCallback(temperatureHandler, temperatureInterval)*/
+
+			
+	
+          hyper.log('Accelerometer available: '+ sensortag.isAccelerometerAvailable())
+          //console.log('\n Accelerometer: ' + sensortag.isAccelerometerAvailable())
+            sensortag
+				.statusCallback(statusHandler)
+				.errorCallback(errorHandler)
+				.accelerometerCallback(accelerometerHandler,accelerometerInterval)
+                //.accelerometerOn();
+
+
+
+	}
+
+	function connectToSensorTag()
+	{
+		disconnectFromSensorTag()
+		// Connect to the nearest SensorTag.
+		sensortag.connectToNearestDevice()
+
+		// Clear existing interval timer if any.
+		//temperatureTimer && clearInterval(temperatureTimer)
+		accelerometerTimer && clearInterval(accelerometerTimer)
+
+		// Start the interval timer for uploading data. This is a
+		// workaround for the SensorTag interval setting.
+		//temperatureTimer = setInterval(onTemperatureTimer, temperatureInterval)
+		accelerometerTimer = setInterval(onAccelerometerTimer, accelerometerInterval)
+		
+
+       hyper.log('####INCONNECTTOSENSOR####' + document.forms[0].elements[0].value)
+
+	}
+
+	function disconnectFromSensorTag()
+	{
+		// Disconnect from the SensorTag.
+		sensortag.disconnectDevice()
+
+		// Clear interval timer.
+		/*temperatureTimer && clearInterval(temperatureTimer)
+		temperatureTimer = null*/
+
+		accelerometerTimer && clearInterval(accelerometerTimer)
+		accelerometerTimer =null
+
+		// Update status message.
+		displayMessage('Disconnected')
+	}
+
+	function temperatureHandler(data)
+	{
+		// Calculate temperature from raw sensor data.
+		// We just use ambient Celsius in this example,
+		// you can edit the code and use other values.
+		var values = sensortag.getTemperatureValues(data)
+		var ac = values.ambientTemperature
+		//var af = sensortag.celsiusToFahrenheit(ac)
+		//var tc = values.targetTemperature
+		//var tf = sensortag.celsiusToFahrenheit(tc)
+
+		// Update temperature reading.
+		lastTemperatureReading = ac.toFixed(2)
+	
+	}
+
+function handleReply(data)
+{
+	hyper.log('Accelerometer: ' + 
+              '\n x: ' + data.x + 
+              '\n y: ' + data.y + 
+              '\n z: ' + data.z)
+  
+}
+
+	function accelerometerHandler(data) {
+		hyper.log('inAccelerometerHandler'+data)
+    var values = getAccelerometerValues(data)
+    
+    currentAccelerometerValues = {
+      rawX: values.x,
+      rawY: values.y,
+      degreeX: values.x/ 10*90,
+      degreeY: values.y/ 10*90
+    }
+
+  lastAccelerometerReadingx =values.x/ 10*90
+  lastAccelerometerReadingz = values.z/ 10*90
+
+hyper.log('inAccelerometerHandlerlater'+lastAccelerometerReadingx+' '+lastAccelerometerReadingz)
+
+  }
+
+function getAccelerometerValues(data){
+
+	hyper.log('ingetAccelerometervalues')
+	var divisors = { x: -16384.0, y: 16384.0, z: -16384.0 };
+
+	// Calculate accelerometer values.
+	var ax = evothings.util.littleEndianToInt16(data, 6) / divisors.x;
+	var ay = evothings.util.littleEndianToInt16(data, 8) / divisors.y;
+	var az = evothings.util.littleEndianToInt16(data, 10) / divisors.z;
+hyper.log('GetAccelerometer: ' + 
+              '\n x: ' + ax + 
+              '\n y: ' + ay + 
+              '\n z: ' + az);
+
+	// Return result.
+	return { x: ax, y: ay, z: az };
+}
+
+
+
+	/*function onTemperatureTimer()
+	{
+		var temperature = lastTemperatureReading
+
+		function successCallback()
+		{
+			//displayMessage('Written temperature FROM ONTemperatureTimerSuccessCallBack: ' + temperature)
+		}
+
+		function errorCallback(error)
+		{
+			//displayMessage('Write error: ' + JSON.stringify(error))
+		}
+
+		// Write the temperature value to the AWS Lambda cloud.
+		//displayMessage('Writing temperature...From ONTemperatureTimerDisplayMesaage')
+		}*/
+
+	function onAccelerometerTimer()
+	{
+		var accelerometerx = parseInt(lastAccelerometerReadingx)
+		var accelerometerz = parseInt(lastAccelerometerReadingz)
+
+		function successCallback()
+		
+		{
+			//displayMessage('Written accelerometer: ' + accelerometerx+' '+accelerometerz)
+			displayMessage('Connected')
+		}
+
+		function errorCallback(error)
+		{
+			displayMessage('Write error Accelerometer: ' + JSON.stringify(error))
+		}
+
+		// Write the Accelerometer value to the AWS Lambda cloud.
+
+        var phoneNo = document.forms[0].elements[0].value
+
+		//displayMessage('Writing AccelerometerData...' + typeof(phoneNo))
+		//var ph = parseInt(phoneNo)
+		//displayMessage('Type of phoneNo is' + typeof(phoneNo)+'Type of ph is '+  'type of accelerometerxz is '+ typeof(accelerometerx)+typeof(accelerometerz))
+    	
+		
+		evothings.aws.update(phoneNo, accelerometerx,accelerometerz, successCallback, errorCallback)
+	//	evothings.aws.update(12121212, 111.111,22.22, successCallback, errorCallback)
+	}
+
+	function statusHandler(status)
+	{
+		displayMessage(status)
+	}
+
+	function errorHandler(error)
+	{
+		displayMessage('SensorTag error: ' + error)
+	}
+
+	function displayMessage(message)
+	{
+		document.getElementById('status').innerHTML = message
+		console.log(message)
+	}
+
+	document.addEventListener(
+		'deviceready',
+		function() { evothings.scriptsLoaded(initialise) },
+		false)
+	</script>
+</body>
+</html>
